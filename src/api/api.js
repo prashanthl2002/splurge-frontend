@@ -29,3 +29,7 @@ export const setBudget = (data) => {
 export const deleteTransaction = (id) => {
     return axios.delete(`${BASE_URL}/deletetransactions/${id}`);
 };
+
+export const getRoast = (month, year) => {
+    return axios.get(`${BASE_URL}/ai/roast?month=${month}&year=${year}`);
+};

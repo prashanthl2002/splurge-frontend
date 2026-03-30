@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getSummary, getTransactions, addTransaction, deleteTransaction, setBudget } from './api/api'
+import { getSummary, getTransactions, addTransaction, deleteTransaction, setBudget, getRoast } from './api/api'
 
 const CATEGORY_ICONS = {
   food: '🍕', travel: '🚗', fun: '🎮', shopping: '👗',
@@ -28,6 +28,8 @@ export default function App() {
   const [form, setForm]                 = useState({ name:'', amount:'', category:'food', note:'', date:'' })
   const [budgetForm, setBudgetForm]     = useState({ amount:'' })
   const [submitting, setSubmitting]     = useState(false)
+  const [roast, setRoast]               = useState(null)
+  const [roasting, setRoasting]         = useState(false)
 
   useEffect(() => { loadData() }, [month, year, filterCat])
 
@@ -92,8 +94,40 @@ export default function App() {
     }
   }
 
+  const handleRoast = async () => {
+    try {
+      setRoasting(true)
+      setRoast(null)
+      const res = await getRoast(month, year)
+      setRoast(res.data.roast)
+    } catch (e) {
+      showToast('Could not analyse spending', 'error')
+    } finally {
+      setRoasting(false)
+    }
+  }
+
+  // Parse AI response into structured sections
+  const parseAnalysis = (text) => {
+    if (!text) return null
+    const lines = text.split('\n').filter(l => l.trim())
+    return lines.map((line, i) => {
+      if (line.startsWith('VERDICT:')) {
+        return { type: 'verdict', text: line.replace('VERDICT:', '').trim(), key: i }
+      } else if (line.startsWith('TIP 1:') || line.startsWith('TIP 2:') || line.startsWith('TIP 3:')) {
+        const [label, ...rest] = line.split(':')
+        return { type: 'tip', label: label.trim(), text: rest.join(':').trim(), key: i }
+      } else if (line.startsWith('SAVE THIS MONTH:')) {
+        return { type: 'save', text: line.replace('SAVE THIS MONTH:', '').trim(), key: i }
+      } else {
+        return { type: 'other', text: line.trim(), key: i }
+      }
+    })
+  }
+
   const pct = Math.min(summary?.percentageUsed ?? 0, 100)
   const barColor = pct > 85 ? '#ff6b6b' : pct > 60 ? '#ffb547' : '#c8ff57'
+  const parsed = parseAnalysis(roast)
 
   return (
     <>
@@ -130,11 +164,6 @@ export default function App() {
             radial-gradient(ellipse 600px 500px at 0% 100%, rgba(200,255,87,0.04) 0%, transparent 60%);
         }
 
-        /* ──────────────────────────────────────────
-           DESKTOP LAYOUT  (≥ 900px)
-           Left: score card + categories
-           Right: transactions
-        ────────────────────────────────────────── */
         @media (min-width: 900px) {
           .page-inner {
             max-width: 1160px;
@@ -148,27 +177,20 @@ export default function App() {
             column-gap: 28px;
             align-items: start;
           }
-
           .area-header { grid-area: header; }
           .area-left   { grid-area: left; }
           .area-right  { grid-area: right; }
         }
 
-        /* ──────────────────────────────────────────
-           MOBILE LAYOUT  (< 900px)
-        ────────────────────────────────────────── */
         @media (max-width: 899px) {
           .page-inner {
             max-width: 480px;
             margin: 0 auto;
             padding: 0 0 110px;
           }
-          .area-header,
-          .area-left,
-          .area-right { padding: 0; }
+          .area-header, .area-left, .area-right { padding: 0; }
         }
 
-        /* ── Header ────────────────────────────── */
         .header {
           display: flex;
           justify-content: space-between;
@@ -182,50 +204,38 @@ export default function App() {
 
         .logo {
           font-family: 'Syne', sans-serif;
-          font-weight: 800;
-          font-size: 26px;
-          color: var(--accent);
-          letter-spacing: -0.5px;
+          font-weight: 800; font-size: 26px;
+          color: var(--accent); letter-spacing: -0.5px;
         }
 
         .logo span { color: var(--text); }
 
         .month-nav {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          background: var(--card);
-          border: 1px solid var(--border2);
-          border-radius: 20px;
-          padding: 7px 14px;
+          display: flex; align-items: center; gap: 10px;
+          background: var(--card); border: 1px solid var(--border2);
+          border-radius: 20px; padding: 7px 14px;
         }
 
         .nav-btn {
           background: none; border: none;
           color: var(--muted); cursor: pointer;
           font-size: 15px; padding: 2px 4px;
-          transition: color 0.2s;
-          font-family: 'DM Mono', monospace;
+          transition: color 0.2s; font-family: 'DM Mono', monospace;
         }
 
         .nav-btn:hover { color: var(--accent); }
 
         .month-label {
           font-size: 12px; color: var(--text);
-          min-width: 66px; text-align: center;
-          letter-spacing: 0.5px;
+          min-width: 66px; text-align: center; letter-spacing: 0.5px;
         }
 
-        /* ── Score Card ─────────────────────────── */
+        /* Score Card */
         .score-card {
-          background: var(--card);
-          border: 1px solid var(--border2);
-          border-radius: 24px;
-          padding: 26px;
-          position: relative;
-          overflow: hidden;
-          animation: fadeUp 0.4s ease both;
-          margin-bottom: 12px;
+          background: var(--card); border: 1px solid var(--border2);
+          border-radius: 24px; padding: 26px;
+          position: relative; overflow: hidden;
+          animation: fadeUp 0.4s ease both; margin-bottom: 12px;
         }
 
         @media (max-width: 899px) {
@@ -233,16 +243,14 @@ export default function App() {
         }
 
         .score-card::before {
-          content: '';
-          position: absolute;
+          content: ''; position: absolute;
           top: 0; left: 0; right: 0; height: 2px;
           background: linear-gradient(90deg, var(--accent3), var(--accent), var(--accent2));
         }
 
         .card-label {
           font-size: 10px; letter-spacing: 2px;
-          color: var(--muted); text-transform: uppercase;
-          margin-bottom: 10px;
+          color: var(--muted); text-transform: uppercase; margin-bottom: 10px;
         }
 
         .card-amount {
@@ -278,16 +286,115 @@ export default function App() {
 
         .budget-btn {
           margin-top: 16px; background: none;
-          border: 1px dashed var(--border2);
-          border-radius: 12px; padding: 9px 14px;
-          font-family: 'DM Mono', monospace;
+          border: 1px dashed var(--border2); border-radius: 12px;
+          padding: 9px 14px; font-family: 'DM Mono', monospace;
           font-size: 11px; color: var(--muted);
           cursor: pointer; transition: all 0.2s; width: 100%;
         }
 
         .budget-btn:hover { border-color: var(--accent3); color: var(--accent3); }
 
-        /* ── Section title ──────────────────────── */
+        /* AI Analysis Card */
+        .analysis-card {
+          background: var(--card); border: 1px solid var(--border2);
+          border-radius: 24px; padding: 22px;
+          position: relative; overflow: hidden;
+          margin-bottom: 12px; animation: fadeUp 0.4s ease both;
+        }
+
+        @media (max-width: 899px) {
+          .analysis-card { margin: 0 16px 12px; }
+        }
+
+        .analysis-card::before {
+          content: ''; position: absolute;
+          top: 0; left: 0; right: 0; height: 2px;
+          background: linear-gradient(90deg, #7b6cff, #c8ff57);
+        }
+
+        .analysis-label {
+          font-size: 10px; letter-spacing: 2px;
+          color: var(--muted); text-transform: uppercase; margin-bottom: 14px;
+        }
+
+        .analysis-placeholder {
+          font-size: 12px; color: var(--muted);
+          line-height: 1.8; margin-bottom: 14px;
+        }
+
+        /* Verdict row */
+        .verdict-row {
+          background: rgba(200,255,87,0.06);
+          border: 1px solid rgba(200,255,87,0.15);
+          border-radius: 12px; padding: 12px 14px;
+          font-size: 12px; color: var(--accent);
+          line-height: 1.6; margin-bottom: 10px;
+        }
+
+        /* Tip rows */
+        .tip-row {
+          display: flex; gap: 10px; align-items: flex-start;
+          padding: 10px 0;
+          border-bottom: 1px solid var(--border2);
+        }
+
+        .tip-row:last-of-type { border-bottom: none; }
+
+        .tip-num {
+          flex-shrink: 0;
+          width: 22px; height: 22px;
+          background: rgba(123,108,255,0.15);
+          border: 1px solid rgba(123,108,255,0.3);
+          border-radius: 6px;
+          font-family: 'Syne', sans-serif;
+          font-weight: 700; font-size: 10px;
+          color: var(--accent3);
+          display: flex; align-items: center; justify-content: center;
+        }
+
+        .tip-text {
+          font-size: 12px; color: var(--text); line-height: 1.6;
+        }
+
+        /* Save row */
+        .save-row {
+          display: flex; justify-content: space-between;
+          align-items: center;
+          background: rgba(107,255,212,0.06);
+          border: 1px solid rgba(107,255,212,0.15);
+          border-radius: 12px; padding: 12px 14px;
+          margin-top: 10px;
+        }
+
+        .save-label {
+          font-size: 10px; letter-spacing: 1px;
+          color: var(--muted); text-transform: uppercase;
+        }
+
+        .save-amount {
+          font-family: 'Syne', sans-serif; font-weight: 800;
+          font-size: 18px; color: #6bffd4;
+        }
+
+        .analyse-btn {
+          width: 100%; padding: 11px 18px; margin-top: 14px;
+          border: none; border-radius: 12px;
+          font-family: 'Syne', sans-serif; font-weight: 700;
+          font-size: 13px; color: var(--bg); cursor: pointer;
+          transition: all 0.2s;
+          background: linear-gradient(135deg, var(--accent3), var(--accent));
+        }
+
+        .analyse-btn:disabled {
+          background: var(--border2); color: var(--muted); cursor: not-allowed;
+        }
+
+        .analyse-btn:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(123,108,255,0.4);
+        }
+
+        /* Section title */
         .section-title {
           font-family: 'Syne', sans-serif;
           font-size: 11px; font-weight: 700;
@@ -299,11 +406,9 @@ export default function App() {
           .section-title { padding: 20px 18px 12px; }
         }
 
-        /* ── Category grid ──────────────────────── */
+        /* Category grid */
         .cat-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 8px;
+          display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
         }
 
         @media (max-width: 899px) {
@@ -311,8 +416,7 @@ export default function App() {
         }
 
         .cat-card {
-          background: var(--card);
-          border: 1px solid var(--border2);
+          background: var(--card); border: 1px solid var(--border2);
           border-radius: 18px; padding: 16px;
           cursor: pointer; transition: all 0.2s;
           animation: fadeUp 0.4s ease both;
@@ -327,11 +431,10 @@ export default function App() {
         .cat-bar-bg   { height: 3px; background: var(--border2); border-radius: 10px; margin-top: 10px; overflow: hidden; }
         .cat-bar-fill { height: 100%; border-radius: 10px; transition: width 1s 0.3s ease; }
 
-        /* ── Filter tabs ────────────────────────── */
+        /* Tabs */
         .tabs {
-          display: flex; gap: 6px;
-          overflow-x: auto; scrollbar-width: none;
-          padding-bottom: 2px; margin-bottom: 12px;
+          display: flex; gap: 6px; overflow-x: auto;
+          scrollbar-width: none; padding-bottom: 2px; margin-bottom: 12px;
         }
 
         @media (max-width: 899px) {
@@ -341,18 +444,16 @@ export default function App() {
         .tabs::-webkit-scrollbar { display: none; }
 
         .tab {
-          flex-shrink: 0; padding: 7px 14px;
-          border-radius: 20px; background: var(--card);
-          border: 1px solid var(--border2);
-          font-family: 'DM Mono', monospace;
-          font-size: 11px; color: var(--muted);
-          cursor: pointer; transition: all 0.2s; white-space: nowrap;
+          flex-shrink: 0; padding: 7px 14px; border-radius: 20px;
+          background: var(--card); border: 1px solid var(--border2);
+          font-family: 'DM Mono', monospace; font-size: 11px;
+          color: var(--muted); cursor: pointer; transition: all 0.2s; white-space: nowrap;
         }
 
         .tab:hover { border-color: var(--text); color: var(--text); }
         .tab.active { background: rgba(123,108,255,0.15); border-color: var(--accent3); color: var(--accent3); }
 
-        /* ── Transaction list ───────────────────── */
+        /* Transactions */
         .txn-list { display: flex; flex-direction: column; gap: 8px; }
 
         @media (max-width: 899px) {
@@ -360,12 +461,10 @@ export default function App() {
         }
 
         .txn {
-          background: var(--card);
-          border: 1px solid var(--border2);
+          background: var(--card); border: 1px solid var(--border2);
           border-radius: 16px; padding: 14px 16px;
           display: flex; align-items: center; gap: 12px;
-          animation: fadeUp 0.3s ease both;
-          transition: all 0.2s;
+          animation: fadeUp 0.3s ease both; transition: all 0.2s;
         }
 
         .txn:hover { background: var(--surface); transform: translateX(3px); }
@@ -386,22 +485,19 @@ export default function App() {
 
         .del-btn {
           background: none; border: none; color: var(--muted2);
-          cursor: pointer; font-size: 12px;
-          margin-top: 5px; display: block; margin-left: auto;
-          transition: color 0.2s; padding: 2px 4px;
+          cursor: pointer; font-size: 12px; margin-top: 5px;
+          display: block; margin-left: auto; transition: color 0.2s; padding: 2px 4px;
         }
 
         .del-btn:hover { color: var(--accent2); }
 
         .empty {
-          text-align: center; color: var(--muted);
-          font-size: 12px; padding: 44px 20px;
-          background: var(--card);
-          border: 1px dashed var(--border2);
-          border-radius: 18px; line-height: 2.2;
+          text-align: center; color: var(--muted); font-size: 12px;
+          padding: 44px 20px; background: var(--card);
+          border: 1px dashed var(--border2); border-radius: 18px; line-height: 2.2;
         }
 
-        /* ── FAB ────────────────────────────────── */
+        /* FAB */
         .fab {
           position: fixed; bottom: 28px; left: 50%;
           transform: translateX(-50%); z-index: 100;
@@ -416,11 +512,10 @@ export default function App() {
 
         .fab:hover { transform: translateX(-50%) translateY(-3px); box-shadow: 0 12px 40px rgba(200,255,87,0.5); }
 
-        /* ── Modal ──────────────────────────────── */
+        /* Modals */
         .overlay {
           position: fixed; inset: 0;
-          background: rgba(0,0,0,0.75);
-          backdrop-filter: blur(10px);
+          background: rgba(0,0,0,0.75); backdrop-filter: blur(10px);
           z-index: 200; display: flex;
           align-items: flex-end; justify-content: center;
           opacity: 0; pointer-events: none; transition: opacity 0.3s;
@@ -429,10 +524,8 @@ export default function App() {
         .overlay.open { opacity: 1; pointer-events: all; }
 
         .modal {
-          background: var(--card);
-          border: 1px solid var(--border2);
-          border-radius: 28px 28px 0 0;
-          padding: 28px 24px 52px;
+          background: var(--card); border: 1px solid var(--border2);
+          border-radius: 28px 28px 0 0; padding: 28px 24px 52px;
           width: 100%; max-width: 480px;
           transform: translateY(100%);
           transition: transform 0.4s cubic-bezier(0.4,0,0.2,1);
@@ -447,15 +540,13 @@ export default function App() {
         }
 
         .modal-title {
-          font-family: 'Syne', sans-serif;
-          font-weight: 800; font-size: 22px;
-          margin-bottom: 22px; letter-spacing: -0.5px;
+          font-family: 'Syne', sans-serif; font-weight: 800;
+          font-size: 22px; margin-bottom: 22px; letter-spacing: -0.5px;
         }
 
         .form-label {
-          font-size: 10px; color: var(--muted);
-          letter-spacing: 1.5px; text-transform: uppercase;
-          display: block; margin-bottom: 8px;
+          font-size: 10px; color: var(--muted); letter-spacing: 1.5px;
+          text-transform: uppercase; display: block; margin-bottom: 8px;
         }
 
         .form-group { margin-bottom: 16px; }
@@ -488,9 +579,8 @@ export default function App() {
         .chip:hover  { border-color: var(--text); color: var(--text); }
 
         .btn-full {
-          width: 100%; padding: 16px;
-          background: var(--accent); color: var(--bg);
-          border: none; border-radius: 16px;
+          width: 100%; padding: 16px; background: var(--accent);
+          color: var(--bg); border: none; border-radius: 16px;
           font-family: 'Syne', sans-serif; font-weight: 700;
           font-size: 16px; cursor: pointer; margin-top: 10px; transition: all 0.2s;
         }
@@ -498,13 +588,14 @@ export default function App() {
         .btn-full:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(200,255,87,0.3); }
         .btn-full:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* ── Toast ──────────────────────────────── */
+        /* Toast */
         .toast {
           position: fixed; top: 20px; left: 50%;
           transform: translateX(-50%) translateY(-90px);
           padding: 12px 22px; border-radius: 14px;
           font-family: 'Syne', sans-serif; font-weight: 600;
-          font-size: 13px; z-index: 500; transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+          font-size: 13px; z-index: 500;
+          transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
           white-space: nowrap; pointer-events: none;
           box-shadow: 0 4px 20px rgba(0,0,0,0.4);
         }
@@ -513,7 +604,7 @@ export default function App() {
         .toast.success { background: var(--accent); color: var(--bg); }
         .toast.error   { background: var(--accent2); color: white; }
 
-        /* ── Loading ────────────────────────────── */
+        /* Loading */
         .loading {
           display: flex; flex-direction: column;
           align-items: center; justify-content: center;
@@ -560,8 +651,10 @@ export default function App() {
             </div>
           ) : (
             <>
-              {/* ── LEFT: summary + categories ── */}
+              {/* LEFT: summary + analysis + categories */}
               <div className="area-left">
+
+                {/* Score Card */}
                 <div className="score-card">
                   <div className="card-label">{MONTHS[month-1]} {year} — total spend</div>
                   <div className="card-amount">
@@ -581,6 +674,45 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* AI Analysis Card */}
+                <div className="analysis-card">
+                  <div className="analysis-label">💡 AI Spending Analysis</div>
+
+                  {parsed ? (
+                    <>
+                      {parsed.map(item => {
+                        if (item.type === 'verdict') return (
+                          <div key={item.key} className="verdict-row">
+                            {item.text}
+                          </div>
+                        )
+                        if (item.type === 'tip') return (
+                          <div key={item.key} className="tip-row">
+                            <div className="tip-num">{item.label.replace('TIP ', '')}</div>
+                            <div className="tip-text">{item.text}</div>
+                          </div>
+                        )
+                        if (item.type === 'save') return (
+                          <div key={item.key} className="save-row">
+                            <div className="save-label">Potential savings</div>
+                            <div className="save-amount">{item.text}</div>
+                          </div>
+                        )
+                        return null
+                      })}
+                    </>
+                  ) : (
+                    <div className="analysis-placeholder">
+                      Get 3 personalized tips to save money this month ✦
+                    </div>
+                  )}
+
+                  <button className="analyse-btn" onClick={handleRoast} disabled={roasting}>
+                    {roasting ? '⏳ Analysing your spending...' : '💡 Analyse & Save'}
+                  </button>
+                </div>
+
+                {/* Categories */}
                 {summary?.byCategory && Object.keys(summary.byCategory).length > 0 && (
                   <>
                     <div className="section-title">📊 by category</div>
@@ -607,7 +739,7 @@ export default function App() {
                 )}
               </div>
 
-              {/* ── RIGHT: transactions ── */}
+              {/* RIGHT: transactions */}
               <div className="area-right">
                 <div className="section-title">⚡ transactions</div>
                 <div className="tabs">
@@ -643,9 +775,10 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── Add Transaction Modal ── */}
+      {/* FAB */}
       <button className="fab" onClick={() => setShowModal(true)}>+ Add spend</button>
 
+      {/* Add Transaction Modal */}
       <div className={`overlay ${showModal ? 'open' : ''}`}
            onClick={e => e.target === e.currentTarget && setShowModal(false)}>
         <div className="modal">
@@ -688,7 +821,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── Set Budget Modal ── */}
+      {/* Set Budget Modal */}
       <div className={`overlay ${showBudget ? 'open' : ''}`}
            onClick={e => e.target === e.currentTarget && setShowBudget(false)}>
         <div className="modal">
@@ -703,7 +836,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── Toast ── */}
+      {/* Toast */}
       {toast && <div className={`toast show ${toast.type}`}>{toast.msg}</div>}
     </>
   )
