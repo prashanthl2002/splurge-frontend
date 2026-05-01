@@ -11,7 +11,7 @@ const BASE_URL = import.meta.env.VITE_API_URL;
 // };
 
 export const getTransactions = (category, month, year) =>
-  axios.get('/gettransactions', { params: { category, month, year } })
+  axios.get('/api/gettransactions', { params: { category, month, year } })
 
 // matches @PostMapping("/transactions")
 export const addTransaction = (data) => {
