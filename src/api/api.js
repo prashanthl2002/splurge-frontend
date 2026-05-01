@@ -3,12 +3,15 @@ import axios from 'axios';
 const BASE_URL = import.meta.env.VITE_API_URL;
 
 // matches @GetMapping("/gettransactions")
-export const getTransactions = (category = '') => {
-    const url = category
-        ? `${BASE_URL}/gettransactions?category=${category}`
-        : `${BASE_URL}/gettransactions`;
-    return axios.get(url);  // ← return was missing before, now added
-};
+// export const getTransactions = (category = '') => {
+//     const url = category
+//         ? `${BASE_URL}/gettransactions?category=${category}`
+//         : `${BASE_URL}/gettransactions`;
+//     return axios.get(url);  // ← return was missing before, now added
+// };
+
+export const getTransactions = (category, month, year) =>
+  axios.get('/gettransactions', { params: { category, month, year } })
 
 // matches @PostMapping("/transactions")
 export const addTransaction = (data) => {
@@ -31,5 +34,5 @@ export const deleteTransaction = (id) => {
 };
 
 export const getRoast = (month, year) => {
-    return axios.get(`${BASE_URL}/ai/roast?month=${month}&year=${year}`);
+    return axios.get(`${BASE_URL}/ai/analysis?month=${month}&year=${year}`);
 };

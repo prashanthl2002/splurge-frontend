@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { getSummary, getTransactions, addTransaction, deleteTransaction, setBudget, getRoast } from './api/api'
+import { useNotifications } from "./hooks/useNotifications";
+import { NotificationBanner } from "./components/NotificationBanner";
 
 const CATEGORY_ICONS = {
   food: '🍕', travel: '🚗', fun: '🎮', shopping: '👗',
@@ -30,24 +32,26 @@ export default function App() {
   const [submitting, setSubmitting]     = useState(false)
   const [roast, setRoast]               = useState(null)
   const [roasting, setRoasting]         = useState(false)
+  const { notifState, isSupported, isOneSignalReady, requestPermission } = useNotifications();
 
   useEffect(() => { loadData() }, [month, year, filterCat])
 
   const loadData = async () => {
-    try {
-      setLoading(true)
-      const [sRes, tRes] = await Promise.all([
-        getSummary(month, year),
-        getTransactions(filterCat)
-      ])
-      setSummary(sRes.data)
-      setTransactions(tRes.data)
-    } catch (e) {
-      showToast('Could not connect to backend', 'error')
-    } finally {
-      setLoading(false)
-    }
+  try {
+    setLoading(true)
+    const [sRes, tRes] = await Promise.all([
+      getSummary(month, year),
+      getTransactions(filterCat || null, month, year)  // ← convert "" to null
+    ])
+    setSummary(sRes.data)
+    const txnData = tRes.data
+    setTransactions(Array.isArray(txnData) ? txnData : txnData.content ?? [])
+  } catch (e) {
+    showToast('Could not connect to backend', 'error')
+  } finally {
+    setLoading(false)
   }
+}
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -620,12 +624,61 @@ export default function App() {
           animation: spin 0.7s linear infinite;
         }
 
+        .empty-state {
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          text-align: center;
+          background: var(--card); border: 1px dashed var(--border2);
+          border-radius: 24px; padding: 48px 24px;
+          animation: fadeUp 0.4s ease both;
+        }
+
+        .empty-emoji {
+          font-size: 48px; margin-bottom: 16px;
+          animation: float 3s ease-in-out infinite;
+        }
+
+        .empty-title {
+          font-family: 'Syne', sans-serif; font-weight: 800;
+          font-size: 20px; color: var(--text);
+          margin-bottom: 10px; letter-spacing: -0.5px;
+        }
+
+        .empty-sub {
+          font-size: 12px; color: var(--muted);
+          line-height: 2; margin-bottom: 24px;
+        }
+
+        .empty-cta {
+          background: none; border: 1px solid var(--accent3);
+          color: var(--accent3); border-radius: 12px;
+          padding: 10px 22px; font-family: 'DM Mono', monospace;
+          font-size: 12px; cursor: pointer; transition: all 0.2s;
+        }
+
+        .empty-cta:hover {
+          background: rgba(123,108,255,0.15);
+          transform: translateY(-2px);
+        }
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
         @keyframes spin   { to { transform: rotate(360deg); } }
         @keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
       `}</style>
 
       <div className="page">
         <div className="page-inner">
+
+
+          <NotificationBanner
+            notifState={notifState}
+            isSupported={isSupported}
+            requestPermission={requestPermission}
+          />
 
           {/* Header */}
           <div className="area-header">
@@ -753,7 +806,14 @@ export default function App() {
                 </div>
                 <div className="txn-list">
                   {transactions.length === 0
-                    ? <div className="empty">No transactions yet.<br />Hit <strong style={{color:'var(--accent)'}}>+ Add spend</strong> to log one!</div>
+                    ? (
+                          <div className="empty-state">
+                            <div className="empty-emoji">🌚</div>
+                            <div className="empty-title">Clean slate for {MONTHS[month-1]}!</div>
+                            <div className="empty-sub">No spends logged this month yet.<br/>Your wallet is intact... for now.</div>
+                            <button className="empty-cta" onClick={() => setShowModal(true)}>+ Log your first spend</button>
+                          </div>
+                    )   
                     : transactions.map((txn, i) => (
                       <div key={txn.id} className="txn" style={{ animationDelay: `${i * 0.04}s` }}>
                         <div className="txn-emoji">{CATEGORY_ICONS[txn.category] ?? '💸'}</div>
