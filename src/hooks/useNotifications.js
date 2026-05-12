@@ -1,37 +1,56 @@
 import { useEffect, useState } from "react";
- 
+
 const ONESIGNAL_APP_ID = import.meta.env.VITE_ONESIGNAL_APP_ID;
- 
+
+// ── Module-level guard — survives Strict Mode double mount ──────────────────
+let sdkInitialized = false;
+
 export function useNotifications() {
-  const [notifState, setNotifState] = useState("default"); // default | granted | denied | unsupported
+  const [notifState, setNotifState] = useState("default");
   const [isOneSignalReady, setIsOneSignalReady] = useState(false);
- 
-  // ─── Step 1: Load OneSignal SDK and initialise ─────────────────────────────
+
   useEffect(() => {
     if (!ONESIGNAL_APP_ID) {
       console.warn("VITE_ONESIGNAL_APP_ID not set — notifications disabled.");
       return;
     }
- 
-    // Inject OneSignal SDK script dynamically
-    const script = document.createElement("script");
-    script.src = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
-    script.defer = true;
-    document.head.appendChild(script);
- 
-    script.onload = () => {
+
+    // If SDK already loaded (Strict Mode second mount), just sync state
+    if (sdkInitialized) {
+      setIsOneSignalReady(true);
       window.OneSignalDeferred = window.OneSignalDeferred || [];
-      window.OneSignalDeferred.push(async (OneSignal) => {
+      window.OneSignalDeferred.push((OneSignal) => {
+        // FIX 3: permission is a plain property, not a promise
+        const permission = OneSignal.Notifications.permission;
+        setNotifState(permission ? "granted" : "default");
+      });
+      return;
+    }
+
+    sdkInitialized = true;
+
+    // Only inject script once
+    if (!document.querySelector('script[src*="OneSignalSDK.page.js"]')) {
+      const script = document.createElement("script");
+      script.src = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    window.OneSignalDeferred.push(async (OneSignal) => {
+      try {
         await OneSignal.init({
           appId: ONESIGNAL_APP_ID,
-          // Shows the native browser permission prompt automatically
-          // Set to false if you want to use your own custom prompt button
           promptOptions: {
             slidedown: {
               prompts: [
                 {
                   type: "push",
-                  autoPrompt: false, // We control when to show it (see requestPermission below)
+                  // FIX 2: was false — must be true OR we use native prompt directly
+                  // keeping false since we call requestPermission manually, 
+                  // but switching to native browser prompt instead of slidedown
+                  autoPrompt: false,
                   text: {
                     actionMessage: "Get daily reminders to log your expenses 💸",
                     acceptButton: "Allow",
@@ -41,50 +60,54 @@ export function useNotifications() {
               ],
             },
           },
-          // Disable the default bell icon — we have our own UI
           notifyButton: { enable: false },
           welcomeNotification: {
             title: "Splurge Notifications On! 🎉",
             message: "You'll get daily reminders to log your expenses.",
           },
         });
- 
+
         setIsOneSignalReady(true);
- 
-        // Sync current permission state
-        const permission = await OneSignal.Notifications.permission;
+
+        // FIX 3: no await — it's a plain boolean property
+        const permission = OneSignal.Notifications.permission;
         setNotifState(permission ? "granted" : "default");
- 
-        // Listen for permission changes
+
         OneSignal.Notifications.addEventListener("permissionChange", (granted) => {
           setNotifState(granted ? "granted" : "denied");
         });
-      });
-    };
- 
-    return () => {
-      // Cleanup script if component unmounts
-      document.head.removeChild(script);
-    };
+
+      } catch (err) {
+        // "SDK already initialized" won't crash the app now
+        console.warn("OneSignal init warning:", err.message);
+        setIsOneSignalReady(true);
+      }
+    });
+
+    // FIX 4: don't remove script on cleanup — OneSignal needs it alive
+    // No cleanup return here intentionally
   }, []);
- 
-  // ─── Step 2: Expose a function to request permission ──────────────────────
-  // Call this when user clicks your "Enable Notifications" button
+
   const requestPermission = async () => {
-    if (!isOneSignalReady || !window.OneSignalDeferred) return;
- 
+    if (!isOneSignalReady) return;
+
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
     window.OneSignalDeferred.push(async (OneSignal) => {
-      // Shows OneSignal's slidedown prompt first, then browser native prompt
-      await OneSignal.Slidedown.promptPush();
+      try {
+        // FIX 2: use native browser prompt — more reliable than slidedown
+        // slidedown requires autoPrompt:true to work correctly
+        await OneSignal.Notifications.requestPermission();
+      } catch (err) {
+        console.warn("Permission request failed:", err.message);
+      }
     });
   };
- 
-  // ─── Step 3: Check if browser supports push at all ────────────────────────
+
   const isSupported = "Notification" in window && "serviceWorker" in navigator;
- 
+
   return {
-    notifState,       // "default" | "granted" | "denied"
-    isSupported,      // false on iOS Safari < 16.4, some older browsers
+    notifState,
+    isSupported,
     isOneSignalReady,
     requestPermission,
   };
